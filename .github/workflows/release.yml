@@ -1,0 +1,67 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23.1'
+        
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+          
+    - name: Build for Linux AMD64
+      run: |
+        GOOS=linux GOARCH=amd64 go run _scripts/make.go build
+        
+    - name: Get commit SHA
+      id: vars
+      run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+    - name: Create release directory
+      run: |
+        mkdir -p release
+        cp dlv release/delve-linux-amd64
+        
+    - name: Upload binary as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: delve-linux-amd64-${{ steps.vars.outputs.sha_short }}
+        path: release/delve-linux-amd64
+        retention-days: 90
+        
+    - name: Create Release (on push to master/main)
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: auto-${{ steps.vars.outputs.sha_short }}
+        name: Auto Release ${{ steps.vars.outputs.sha_short }}
+        body: |
+          Automated release for commit ${{ github.sha }}
+          
+          Built on: ${{ github.run_id }}
+          Platform: linux/amd64
+        files: release/delve-linux-amd64
+        draft: false
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
